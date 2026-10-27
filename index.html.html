@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Fixeets QR Scanner</title>
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <style>
+    :root { color-scheme: light; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; padding: 24px 16px 40px;
+      font-family: Arial, sans-serif; color: #16324f; background: #f3f7fc;
+    }
+    main {
+      max-width: 620px; margin: 0 auto; background: #fff; padding: 24px;
+      border-radius: 18px; box-shadow: 0 8px 28px rgba(20, 54, 90, .10);
+    }
+    h1 { margin: 0 0 8px; font-size: 25px; }
+    p { line-height: 1.5; }
+    .muted { color: #5d7188; font-size: 14px; }
+    #reader { width: 100%; margin: 18px auto; }
+    button {
+      border: 0; border-radius: 10px; padding: 12px 16px; margin: 4px 4px 4px 0;
+      font-size: 15px; font-weight: 700; cursor: pointer;
+      background: #1769aa; color: white;
+    }
+    button.secondary { background: #e8eef5; color: #16324f; }
+    button:disabled { opacity: .55; cursor: not-allowed; }
+    #status { padding: 12px; border-radius: 10px; background: #edf4fb; margin-top: 14px; }
+    #result { font-size: 18px; font-weight: 700; overflow-wrap: anywhere; }
+    .warning { font-size: 13px; color: #5d7188; margin-top: 18px; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Fixeets QR Scanner</h1>
+    <p class="muted">Open this page from the inventory app using its Scan QR Code button. Allow camera access when your browser asks.</p>
+
+    <button id="start">Start Camera</button>
+    <button id="stop" class="secondary" disabled>Stop Camera</button>
+    <div id="reader"></div>
+    <div id="status" role="status">Ready. Click <b>Start Camera</b> to begin scanning.</div>
+    <p>Scanned item code: <span id="result">—</span></p>
+    <button id="send" disabled>Send Code to Inventory App</button>
+    <p class="warning">This scanner only reads and sends the QR code text. It does not change stock quantities or record transactions.</p>
+  </main>
+
+<script>
+(function () {
+  const statusEl = document.getElementById('status');
+  const resultEl = document.getElementById('result');
+  const startBtn = document.getElementById('start');
+  const stopBtn = document.getElementById('stop');
+  const sendBtn = document.getElementById('send');
+  let scanner = null;
+  let running = false;
+  let scannedCode = '';
+
+  function setStatus(message) { statusEl.textContent = message; }
+
+  function receiveCode(decodedText) {
+    if (!decodedText || decodedText === scannedCode) return;
+    scannedCode = decodedText.trim();
+    resultEl.textContent = scannedCode;
+    sendBtn.disabled = false;
+    setStatus('QR code detected. Click “Send Code to Inventory App”.');
+    stopCamera();
+  }
+
+  async function startCamera() {
+    if (running) return;
+    if (!window.Html5Qrcode) {
+      setStatus('Scanner library did not load. Check your internet connection and reload this page.');
+      return;
+    }
+    try {
+      scanner = new Html5Qrcode('reader');
+      await scanner.start(
+        { facingMode: 'environment' },
+        { fps: 10, qrbox: { width: 250, height: 250 } },
+        receiveCode,
+        function () {}
+      );
+      running = true;
+      startBtn.disabled = true;
+      stopBtn.disabled = false;
+      setStatus('Camera is on. Point it at an item QR code.');
+    } catch (err) {
+      setStatus('Could not start camera: ' + (err && err.message ? err.message : String(err)) +
+        '. Make sure this page is hosted on HTTPS and camera access is allowed.');
+      scanner = null;
+    }
+  }
+
+  async function stopCamera() {
+    if (scanner && running) {
+      try { await scanner.stop(); } catch (e) {}
+      try { await scanner.clear(); } catch (e) {}
+    }
+    running = false;
+    startBtn.disabled = false;
+    stopBtn.disabled = true;
+  }
+
+  startBtn.addEventListener('click', startCamera);
+  stopBtn.addEventListener('click', stopCamera);
+
+  sendBtn.addEventListener('click', function () {
+    if (!scannedCode) return;
+    if (!window.opener || window.opener.closed) {
+      setStatus('Inventory app window not detected. Keep the inventory app open, then reopen this scanner from its Scan QR Code button.');
+      return;
+    }
+    window.opener.postMessage({ type: 'FIXEETS_QR_SCANNED', code: scannedCode }, '*');
+    setStatus('Code sent to the inventory app. You may return to that tab.');
+  });
+
+  window.addEventListener('beforeunload', function () {
+    if (scanner && running) scanner.stop().catch(function () {});
+  });
+})();
+</script>
+</body>
+</html>
